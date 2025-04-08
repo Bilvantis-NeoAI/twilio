@@ -176,6 +176,23 @@ async def handle_media_stream(websocket: WebSocket):
                 try:
                     async for openai_message in openai_ws:
                         response = json.loads(openai_message.data)
+                        
+                        
+                        ##### NEED TO VERIFY THE FUNCTION CALLS AND CHANGES #####
+                        if response.get("type") == "function_call" and response.get("name") == "get_my_report_mysql":
+                            # Extract parameters (if any)
+                            question = response["parameters"].get("question", "")
+                            # Call our handler to query the database
+                            result = await get_my_report_mysql_handler(question)
+                            # Create a function response message and send it back to OpenAI
+                            function_response = {
+                                "type": "tool_response",
+                                "name": "get_my_report_mysql",
+                                "result": result
+                            }
+                            await openai_ws.send_json(function_response)
+                            continue  # Skip further processing of this message
+                        
                         if response['type'] in LOG_EVENT_TYPES:
                             print(f"Received event: {response['type']}", response)
                         if response['type'] == 'session.updated':
@@ -287,9 +304,84 @@ async def initialize_session(openai_ws):
             "input_audio_format": "g711_ulaw",
             "output_audio_format": "g711_ulaw",
             "voice": VOICE,
-            "instructions": SYSTEM_MESSAGE,
+            "instructions": SYSTEM_MESSAGE + " Please verify the customer's outstanding credit using the `get_my_report_mysql` function, and mention that if the balance is not cleared by the due date, extra penalty charges will be applied.",
             "modalities": ["text", "audio"],
             "temperature": 0.8,
+            "tools": [
+                
+                {
+                    "type": "function",
+                    "name": "incentive_details",
+                    "description": "Get incentive details for a given phone number, including additional benefits for exceeding the target.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "phone_number": { "type": "string" }
+                        },
+                        "required": ["phone_number"]
+                    }
+                },
+                {
+                    "type": "function",
+                    "name": "penalty_details",
+                    "description": "Fetch details of penalty charges applicable after the due date.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "phone_number": { "type": "string" }
+                        },
+                        "required": ["phone_number"]
+                    }
+                },
+                {
+                    "type": "function",
+                    "name": "collection_improvements",
+                    "description": "Provide guidelines for improving collections, including strategies for top customers and defaulters.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "phone_number": { "type": "string" }
+                        },
+                        "required": ["phone_number"]
+                    }
+                },
+                {
+                    "type": "function",
+                    "name": "top_defaulters",
+                    "description": "Retrieve a list of top defaulters along with their outstanding amounts.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "phone_number": { "type": "string" }
+                        },
+                        "required": ["phone_number"]
+                    }
+                },
+                {
+                "type": "function",
+                "name": "get_my_report_mysql",
+                "description": "Gets the information from the database of the enterprise...",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": { "type": "string" }
+                    },
+                    "required": ["question"]
+                }
+                },
+                {
+                "type": "function",
+                "name": "get_insurance_details",
+                "description": "Gets the information on insurance of the caller from the insurance table of the database regarding the policcy, claim, dues etc of the caller. The prompt has default phone number...",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": { "type": "string" }
+                    },
+                    "required": ["question"]
+                }
+                },
+            ],
         }
     }
     print('Sending session update:', json.dumps(session_update))
